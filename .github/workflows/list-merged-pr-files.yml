@@ -1,0 +1,41 @@
+
+name: List Files in Merged Pull Request
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  list-changed-files:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: List updated files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Files changed in PR #$PR_NUMBER"
+
+          gh api --paginate \
+            "repos/$REPO/pulls/$PR_NUMBER/files" \
+            --jq '.[] | "\(.status)\t\(.filename)"' \
+            | tee changed-files.txt
+
+      - name: Add file list to workflow summary
+        run: |
+          {
+            echo "## Files changed in merged PR #${{ github.event.pull_request.number }}"
+            echo ""
+            echo '```text'
+            cat changed-files.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
