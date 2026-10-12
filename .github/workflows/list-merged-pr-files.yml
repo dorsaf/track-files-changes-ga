@@ -24,11 +24,40 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           echo "Files changed in PR #$PR_NUMBER"
-
           gh api --paginate \
-            "repos/$REPO/pulls/$PR_NUMBER/files" \
-            --jq '.[] | "\(.status)\t\(.filename)"' \
-            | tee changed-files.txt
+          "repos/$REPO/pulls/$PR_NUMBER/files" \
+          --jq '.[] | [.status, .filename] | @tsv' \
+          > files.tsv
+
+          {
+            echo "## Added files"
+            echo ""
+      
+            awk -F '\t' '$1 == "added" { print "- " $2 }' files.tsv
+            echo ""
+      
+            echo "## Updated files"
+            echo ""
+      
+            awk -F '\t' '$1 == "modified" { print "- " $2 }' files.tsv
+            echo ""
+      
+            echo "## Deleted files"
+            echo ""
+      
+            awk -F '\t' '$1 == "removed" { print "- " $2 }' files.tsv
+            echo ""
+      
+            echo "## Renamed files"
+            echo ""
+      
+            awk -F '\t' '$1 == "renamed" { print "- " $2 }' files.tsv
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+#          gh api --paginate \
+#            "repos/$REPO/pulls/$PR_NUMBER/files" \
+#            --jq '.[] | "\(.status)\t\(.filename)"' \
+#            | tee changed-files.txt
 
       - name: Add file list to workflow summary
         run: |
