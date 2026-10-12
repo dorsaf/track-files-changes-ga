@@ -1,4 +1,3 @@
-
 name: List Files in Merged Pull Request
 
 on:
@@ -17,54 +16,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: List updated files
+      - name: Fetch changed files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
+          gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files" \
+            | jq 'add // []' > files.json
+
           echo "Files changed in PR #$PR_NUMBER"
-          gh api --paginate \
-          "repos/$REPO/pulls/$PR_NUMBER/files" \
-          --jq '.[] | [.status, .filename] | @tsv' \
-          > files.tsv
-
-          {
-            echo "## Added files"
-            echo ""
-      
-            awk -F '\t' '$1 == "added" { print "- " $2 }' files.tsv
-            echo ""
-      
-            echo "## Updated files"
-            echo ""
-      
-            awk -F '\t' '$1 == "modified" { print "- " $2 }' files.tsv
-            echo ""
-      
-            echo "## Deleted files"
-            echo ""
-      
-            awk -F '\t' '$1 == "removed" { print "- " $2 }' files.tsv
-            echo ""
-      
-            echo "## Renamed files"
-            echo ""
-      
-            awk -F '\t' '$1 == "renamed" { print "- " $2 }' files.tsv
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-
-#          gh api --paginate \
-#            "repos/$REPO/pulls/$PR_NUMBER/files" \
-#            --jq '.[] | "\(.status)\t\(.filename)"' \
-#            | tee changed-files.txt
+          jq -r '.[] | "\(.status)\t\(.filename)"' files.json
 
       - name: Add file list to workflow summary
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          {
-            echo "## Files changed in merged PR #${{ github.event.pull_request.number }}"
-            echo ""
-            echo '```text'
-            cat changed-files.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          jq -r --arg num "$PR_NUMBER" --arg title "$PR_TITLE" --arg url "$PR_URL" '
+            def icon: {added:"🟢", modified:"🔵", removed:"🔴", renamed:"🟣", copied:"🟡", changed:"🟠"}[.] // "⚪";
+            def name: if .status == "renamed"
+                      then "\(.previous_filename) → \(.filename)"
+                      else .filename end;
+
+            "## 📂 Files changed in [#\($num)](\($url)): \($title | @html)",
+            "",
+            (group_by(.status) | map("\(.[0].status | icon) **\(length)** \(.[0].status)") | join(" &nbsp;·&nbsp; ")),
+            "",
+            "<table>",
+            (.[] | "<tr><td>\(.status | icon)</td><td><strong>\(.status)</strong><br><code>\(name | @html)</code></td><td align=\"right\"><code>+\(.additions) −\(.deletions)</code></td></tr>"),
+            "</table>"
+          ' files.json >> "$GITHUB_STEP_SUMMARY"
